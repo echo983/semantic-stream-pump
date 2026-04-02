@@ -7,6 +7,8 @@ from pathlib import Path
 
 DEFAULT_MODEL = "voxtral-mini-transcribe-realtime-2602"
 DEFAULT_STREAM_URL = "https://rtvelivestream.akamaized.net/rtvesec/la2/la2_main_dvr.m3u8"
+DEFAULT_TRANSLATION_MODEL = "ministral-3b-2512"
+DEFAULT_TARGET_LANGUAGE = "Chinese"
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -18,6 +20,8 @@ class SessionConfig:
     stream_url: str
     api_key: str
     model: str = DEFAULT_MODEL
+    translation_model: str = DEFAULT_TRANSLATION_MODEL
+    target_language: str = DEFAULT_TARGET_LANGUAGE
     sample_rate: int = 16000
     target_delay_ms: int = 800
     chunk_duration_ms: int = 480

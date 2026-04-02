@@ -15,10 +15,12 @@ from mistralai.extra.realtime import UnknownRealtimeEvent
 
 from .config import SessionConfig
 from .ffmpeg_stream import FfmpegPCMStream
+from .translator import StreamingTranslator
 
 
 StatusCallback = Callable[[str], None]
 TextCallback = Callable[[str], None]
+TranslationCallback = Callable[[str], None]
 ErrorCallback = Callable[[str], None]
 
 
@@ -29,11 +31,13 @@ class RadioRealtimeTranscriber:
         *,
         on_status: StatusCallback,
         on_text: TextCallback,
+        on_translation: TranslationCallback,
         on_error: ErrorCallback,
     ) -> None:
         self.config = config
         self.on_status = on_status
         self.on_text = on_text
+        self.on_translation = on_translation
         self.on_error = on_error
         self.stop_event = asyncio.Event()
 
@@ -45,6 +49,12 @@ class RadioRealtimeTranscriber:
         audio_format = AudioFormat(
             encoding="pcm_s16le",
             sample_rate=self.config.sample_rate,
+        )
+        translator = StreamingTranslator(
+            self.config,
+            on_translation=self.on_translation,
+            on_status=self.on_status,
+            on_error=self.on_error,
         )
 
         try:
@@ -64,7 +74,9 @@ class RadioRealtimeTranscriber:
                         self.on_status("Session created. Streaming audio...")
                     elif isinstance(event, TranscriptionStreamTextDelta):
                         self.on_text(event.text)
+                        await translator.add_delta(event.text)
                     elif isinstance(event, TranscriptionStreamDone):
+                        await translator.flush(force=True)
                         self.on_status("Stream finished.")
                     elif isinstance(event, RealtimeTranscriptionError):
                         self.on_error(f"Mistral realtime error: {event}")
@@ -75,6 +87,6 @@ class RadioRealtimeTranscriber:
                 stderr_tail = await ffmpeg_stream.read_stderr_tail()
                 if stderr_tail and not self.stop_event.is_set():
                     self.on_status(f"ffmpeg closed: {stderr_tail}")
+                await translator.close()
         except Exception as exc:
             self.on_error(str(exc))
-
