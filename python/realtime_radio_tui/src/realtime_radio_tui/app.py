@@ -61,7 +61,12 @@ class RadioTranscribeApp(App[None]):
     }
     .field {
         width: 1fr;
+        height: auto;
         margin-right: 1;
+    }
+    .field-label {
+        color: $text-muted;
+        margin: 0 0 1 0;
     }
     #button-row {
         height: auto;
@@ -70,10 +75,12 @@ class RadioTranscribeApp(App[None]):
         height: 1fr;
         min-height: 6;
         padding: 1;
-        width: 100%;
+        width: 1fr;
+        min-width: 20;
     }
     #transcript {
         border: round $accent;
+        margin-right: 1;
     }
     #translation {
         border: round $success;
@@ -116,14 +123,14 @@ class RadioTranscribeApp(App[None]):
                 yield Static("M3U8 stream URL", classes="label")
                 yield Input(value=self.initial_url, id="stream-url")
                 with Horizontal(id="control-grid"):
-                    with Vertical(classes="field"):
-                        yield Static("Target delay (ms)", classes="label")
+                    with Container(classes="field"):
+                        yield Static("Target delay (ms)", classes="field-label")
                         yield Input(value="800", id="delay-ms")
-                    with Vertical(classes="field"):
-                        yield Static("Translate to", classes="label")
+                    with Container(classes="field"):
+                        yield Static("Translate to", classes="field-label")
                         yield Input(value=DEFAULT_TARGET_LANGUAGE, id="target-language")
-                    with Vertical(classes="field"):
-                        yield Static("Translation model", classes="label")
+                    with Container(classes="field"):
+                        yield Static("Translation model", classes="field-label")
                         yield Input(value=DEFAULT_TRANSLATION_MODEL, id="translation-model")
                 with Horizontal(id="button-row"):
                     yield Button("Start", id="start", variant="success")
