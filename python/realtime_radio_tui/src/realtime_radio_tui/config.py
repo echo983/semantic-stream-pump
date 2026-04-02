@@ -7,7 +7,7 @@ from pathlib import Path
 
 DEFAULT_MODEL = "voxtral-mini-transcribe-realtime-2602"
 DEFAULT_STREAM_URL = "https://rtvelivestream.akamaized.net/rtvesec/la2/la2_main_dvr.m3u8"
-DEFAULT_TRANSLATION_MODEL = "ministral-3b-2512"
+DEFAULT_TRANSLATION_MODEL = "mistral-small-2603"
 DEFAULT_TARGET_LANGUAGE = "Chinese"
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "

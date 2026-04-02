@@ -15,6 +15,8 @@ ErrorCallback = Callable[[str], None]
 
 
 class StreamingTranslator:
+    SENTENCE_ENDINGS = (".", "!", "?", "。", "！", "？", "…", "\n")
+
     def __init__(
         self,
         config: SessionConfig,
@@ -30,8 +32,9 @@ class StreamingTranslator:
         self.client = Mistral(api_key=config.api_key)
         self.pending_text = ""
         self.last_flush_ts = 0.0
-        self.min_chars = 48
-        self.max_wait_seconds = 4.0
+        self.min_chars = 72
+        self.force_flush_chars = 180
+        self.max_wait_seconds = 6.0
         self.closed = False
 
     async def add_delta(self, text: str) -> None:
@@ -45,14 +48,12 @@ class StreamingTranslator:
         if self.closed and not force:
             return
 
-        batch = self.pending_text.strip()
+        batch, remainder = self._extract_flushable_text(force=force)
+        batch = batch.strip()
         if not batch:
             return
 
-        if not force and len(batch) < self.min_chars and not self._ends_sentence(batch):
-            return
-
-        self.pending_text = ""
+        self.pending_text = remainder
         self.last_flush_ts = time.monotonic()
         try:
             translated = await self._translate_text(batch)
@@ -67,16 +68,56 @@ class StreamingTranslator:
 
     def _should_flush(self) -> bool:
         text = self.pending_text
-        if len(text.strip()) >= self.min_chars and self._ends_sentence(text):
+        stripped = text.strip()
+        if len(stripped) >= self.min_chars and self._has_sentence_boundary(stripped):
             return True
-        if len(text.strip()) >= self.min_chars * 2:
+        if len(stripped) >= self.force_flush_chars:
             return True
         if self.last_flush_ts and (time.monotonic() - self.last_flush_ts) >= self.max_wait_seconds:
             return True
         return False
 
     def _ends_sentence(self, text: str) -> bool:
-        return text.rstrip().endswith((".", "!", "?", "。", "！", "？", "…", "\n"))
+        return text.rstrip().endswith(self.SENTENCE_ENDINGS)
+
+    def _has_sentence_boundary(self, text: str) -> bool:
+        return any(marker in text for marker in self.SENTENCE_ENDINGS)
+
+    def _extract_flushable_text(self, *, force: bool) -> tuple[str, str]:
+        text = self.pending_text
+        stripped = text.strip()
+        if not stripped:
+            return "", text
+
+        if force:
+            return text, ""
+
+        boundary = self._last_sentence_boundary(text)
+        if boundary is not None and len(text[:boundary].strip()) >= self.min_chars:
+            return text[:boundary], text[boundary:]
+
+        if len(stripped) >= self.force_flush_chars:
+            split_at = self._best_soft_split(text)
+            return text[:split_at], text[split_at:]
+
+        return "", text
+
+    def _last_sentence_boundary(self, text: str) -> int | None:
+        last_index = -1
+        for marker in self.SENTENCE_ENDINGS:
+            marker_index = text.rfind(marker)
+            if marker_index > last_index:
+                last_index = marker_index
+        if last_index < 0:
+            return None
+        return last_index + 1
+
+    def _best_soft_split(self, text: str) -> int:
+        for marker in ("\n", ";", ":", ","):
+            marker_index = text.rfind(marker)
+            if marker_index >= self.min_chars:
+                return marker_index + 1
+        return len(text)
 
     async def _translate_text(self, text: str) -> str:
         self.on_status(
@@ -91,9 +132,15 @@ class StreamingTranslator:
                 {
                     "role": "system",
                     "content": (
-                        "You are a live translation engine. Translate the user's text into "
+                        "You are a live subtitle translation engine. Translate the user's text into "
                         f"{self.config.target_language}. Output translation only. "
-                        "Keep natural sentence order. Do not explain. Do not echo the source."
+                        "Treat the input as streaming ASR text that may contain incomplete sentence fragments. "
+                        "Merge obvious fragments into natural, complete sentences when the meaning is clear. "
+                        "Preserve meaning conservatively and do not invent missing facts. "
+                        "Use natural punctuation in the target language. "
+                        "Never insert a line break in the middle of a sentence. "
+                        "Insert one blank line only between completed subtitle sentences or short subtitle blocks. "
+                        "Do not explain. Do not echo the source. Do not add labels."
                     ),
                 },
                 {
