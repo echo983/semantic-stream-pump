@@ -35,6 +35,9 @@ class StreamingTranslator:
         self.min_chars = 72
         self.force_flush_chars = 180
         self.max_wait_seconds = 6.0
+        self.max_context_blocks = 3
+        self.source_history: list[str] = []
+        self.translation_history: list[str] = []
         self.closed = False
 
     async def add_delta(self, text: str) -> None:
@@ -58,6 +61,7 @@ class StreamingTranslator:
         try:
             translated = await self._translate_text(batch)
             if translated:
+                self._remember_context(batch, translated)
                 self.on_translation(translated)
         except Exception as exc:
             self.on_error(f"Translation error: {exc}")
@@ -119,6 +123,55 @@ class StreamingTranslator:
                 return marker_index + 1
         return len(text)
 
+    def _remember_context(self, source_text: str, translated_text: str) -> None:
+        self.source_history.append(source_text.strip())
+        self.translation_history.append(translated_text.strip())
+        if len(self.source_history) > self.max_context_blocks:
+            self.source_history = self.source_history[-self.max_context_blocks :]
+        if len(self.translation_history) > self.max_context_blocks:
+            self.translation_history = self.translation_history[-self.max_context_blocks :]
+
+    def _build_messages(self, text: str) -> list[dict[str, str]]:
+        history_sections: list[str] = []
+        for idx, (source, translation) in enumerate(
+            zip(self.source_history, self.translation_history, strict=False),
+            start=1,
+        ):
+            history_sections.append(
+                f"[Context {idx} source]\n{source}\n\n[Context {idx} translation]\n{translation}"
+            )
+
+        reference_context = "\n\n".join(history_sections).strip() or "None"
+        current_text = text.strip()
+
+        return [
+            {
+                "role": "system",
+                "content": (
+                    "You are a live subtitle translation editor. Translate the current source text into "
+                    f"{self.config.target_language}. Output translation only. "
+                    "Use the provided previous subtitle context to preserve terminology, speaker references, "
+                    "and style consistency across neighboring subtitle blocks. "
+                    "Treat the current source as streaming ASR text that may contain incomplete sentence fragments. "
+                    "Merge obvious fragments into natural, complete sentences when the meaning is clear. "
+                    "Preserve meaning conservatively and do not invent missing facts. "
+                    "Use natural punctuation in the target language. "
+                    "Never insert a line break in the middle of a sentence. "
+                    "Insert one blank line only between completed subtitle sentences or short subtitle blocks. "
+                    "Do not explain. Do not echo the source. Do not add labels."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    "Previous subtitle context for consistency:\n"
+                    f"{reference_context}\n\n"
+                    "Current source text to translate and clean up:\n"
+                    f"{current_text}"
+                ),
+            },
+        ]
+
     async def _translate_text(self, text: str) -> str:
         self.on_status(
             f"Translating batch with {self.config.translation_model} to {self.config.target_language}..."
@@ -127,27 +180,8 @@ class StreamingTranslator:
         stream = await self.client.chat.stream_async(
             model=self.config.translation_model,
             temperature=0,
-            max_tokens=256,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a live subtitle translation engine. Translate the user's text into "
-                        f"{self.config.target_language}. Output translation only. "
-                        "Treat the input as streaming ASR text that may contain incomplete sentence fragments. "
-                        "Merge obvious fragments into natural, complete sentences when the meaning is clear. "
-                        "Preserve meaning conservatively and do not invent missing facts. "
-                        "Use natural punctuation in the target language. "
-                        "Never insert a line break in the middle of a sentence. "
-                        "Insert one blank line only between completed subtitle sentences or short subtitle blocks. "
-                        "Do not explain. Do not echo the source. Do not add labels."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": text,
-                },
-            ],
+            max_tokens=320,
+            messages=self._build_messages(text),
         )
         async for event in stream:
             chunk = event.data
