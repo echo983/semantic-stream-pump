@@ -7,6 +7,10 @@ Thumbs.db
 .venv/
 venv/
 node_modules/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
 
 dist/
 build/
@@ -14,3 +18,4 @@ coverage/
 
 .idea/
 .vscode/
+.tools/
